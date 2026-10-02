@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /admin
+Disallow: /trainer
+Disallow: /manager
+Disallow: /dashboard
+Disallow: /learn
+Sitemap: https://auraawakening.com/api/sitemap.xml
