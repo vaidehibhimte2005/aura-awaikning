@@ -135,7 +135,7 @@ Add a provider by creating `services/payments/<name>Provider.js` with `createChe
 
 ## 5. Production deployment
 
-1. MongoDB Atlas (or managed Mongo). Set `NODE_ENV=production` in the API environment (indexes are built by `npm run seed` or by running once with `NODE_ENV=development`; in production `autoIndex` is off — run `node -e "import('./src/config/db.js').then(async m=>{await m.connectDB();const M=await import('./src/models/index.js');for(const k of Object.keys(M))await M[k].syncIndexes?.();process.exit(0)})"` from `server/` after deploys that add indexes).
+1. MongoDB Atlas (or managed Mongo). Set `NODE_ENV=production` for the API. Production disables Mongoose `autoIndex`, so run `npm run db:indexes` (from `server/`) once after the first deploy and after any deploy that adds indexes.
 2. API (Render / Railway / EC2 / DigitalOcean): `npm ci && npm start`, set every variable from `.env.example`. `CLIENT_URL` must list the exact site origin(s). Serve behind HTTPS.
 3. Client: `npm run build` → deploy `client/dist` to Netlify / Vercel / S3+CloudFront with SPA fallback to `index.html`. Set `VITE_API_URL=https://api.yourdomain.com` at build time. If the API is on a different site (domain), cookies use `SameSite=None; Secure` automatically in production.
 4. Point Razorpay/Stripe webhooks at the API. Configure SMTP for email notifications.
