@@ -11,7 +11,18 @@ export const NOTIFICATION_TYPES = [
   'lesson_new',
   'announcement',
   'certificate',
+  'trainer_application',
+  'course_review',
+  'refund',
+  'account',
   'system',
+  'booking',
+  'session',
+  'package',
+  'payout',
+  'attendance',
+  'trainer_account',
+  'registration',
 ];
 
 const notificationSchema = new Schema(
@@ -22,6 +33,13 @@ const notificationSchema = new Schema(
     message: { type: String, default: '' },
     link: { type: String, default: '' },
     readAt: Date,
+    // What the notification is about, for deep links and de-duplication.
+    related: {
+      type: { type: String, enum: ['trainer_application', 'course', 'enrollment', 'order', 'payment', 'live_session', 'user', 'booking', 'subscription', 'earning', 'slot'] },
+      id: Schema.Types.ObjectId,
+    },
+    // Same key + same recipient = one notification, even if the triggering request is retried.
+    idempotencyKey: { type: String },
     // Delivery log per channel — lets email/SMS/WhatsApp/push workers report back.
     deliveries: [
       {
@@ -38,5 +56,6 @@ const notificationSchema = new Schema(
 
 notificationSchema.index({ user: 1, createdAt: -1 });
 notificationSchema.index({ user: 1, readAt: 1 });
+notificationSchema.index({ user: 1, idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } });
 
 export default mongoose.model('Notification', notificationSchema);

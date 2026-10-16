@@ -31,6 +31,12 @@ const liveSessionSchema = new Schema(
     // `auto` derives the state from the time window.
     liveStatus: { type: String, enum: ['auto', 'live', 'ended'], default: 'auto' },
     isPublished: { type: Boolean, default: false, index: true },
+    // Trainer-created sessions start as `pending` and only reach learners
+    // (isPublished = true) once a manager/admin approves them.
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
+    rejectionReason: { type: String, default: '' },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: Date,
     requiresRegistration: { type: Boolean, default: false },
     accessLevel: { type: String, enum: ['public', 'registered', 'enrolled'], default: 'public' },
     capacity: { type: Number, min: 0 },

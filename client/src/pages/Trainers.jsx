@@ -7,6 +7,7 @@ import { TrainerCard, TrainerPhoto } from '../components/TrainerCard.jsx';
 import { CourseGrid } from '../components/CourseCard.jsx';
 import { LiveSessionCard } from '../components/LiveSessionCard.jsx';
 import { AsyncBlock, EmptyState, ErrorState, Loader } from '../components/States.jsx';
+import { TrainerFeedbackSection } from '../training/TrainerFeedback.jsx';
 import { Markdown } from '../utils/markdown.jsx';
 
 export function Trainers() {
@@ -61,6 +62,7 @@ export function TrainerDetail() {
           </div>
         </div>
       </section>
+      <TrainerFeedbackSection trainer={t} />
       {!!data.courses.length && (
         <section className="section-sm">
           <div className="container">

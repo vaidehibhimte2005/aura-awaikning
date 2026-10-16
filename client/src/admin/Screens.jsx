@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LuBookOpen, LuCalendarDays, LuCreditCard, LuEye, LuGraduationCap, LuIndianRupee, LuRotateCcw, LuUserCheck, LuUserPlus, LuUsers } from 'react-icons/lu';
+import { LuBookOpen, LuCalendarDays, LuCheck, LuX, LuCreditCard, LuEye, LuGraduationCap, LuIndianRupee, LuRotateCcw, LuUserCheck, LuUserPlus, LuUsers } from 'react-icons/lu';
 import { useFetch } from '../hooks/useFetch.js';
 import { useSeo } from '../hooks/useSeo.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -15,6 +15,7 @@ import { FormFields, initialValues, cleanPayload } from '../panel/FormBuilder.js
 import { ConfirmDialog, Modal } from '../components/Modal.jsx';
 import { ErrorState, Loader, Alert, EmptyState } from '../components/States.jsx';
 import { Progress } from '../components/Progress.jsx';
+import { WorkflowStats } from './WorkflowStats.jsx';
 import * as R from '../panel/resources.jsx';
 import { formatDate, formatDateTime, formatPrice, titleCase } from '../utils/format.js';
 
@@ -39,6 +40,7 @@ export function AdminDashboard() {
         <div className="stat"><span className="stat-label">Enrollments <LuUserPlus /></span><span className="stat-value">{t.enrollments}</span></div>
         <div className="stat"><span className="stat-label">Revenue <LuIndianRupee /></span><span className="stat-value" style={{ fontSize: '1.7rem' }}>{sumRevenue(data.revenue)}</span><span className="stat-sub">30 days: {sumRevenue(data.revenue30)}</span></div>
       </div>
+      <WorkflowStats workflow={data.workflow} base="admin" />
       <div className="panel-grid">
         <section className="panel-card">
           <div className="panel-card-head"><h2>Recent payments</h2><Link to="/admin/payments" className="btn btn-text btn-sm">View all</Link></div>
@@ -92,8 +94,12 @@ export function TrainerDashboard() {
     <div>
       <div className="panel-head"><div><h1>Welcome, {user.name.split(' ')[0]}</h1><p>Your courses, sessions and learners.</p></div><Link to="/trainer/live-sessions" className="btn btn-sm">Schedule a Session</Link></div>
       <div className="stats">
-        <div className="stat"><span className="stat-label">Assigned courses <LuBookOpen /></span><span className="stat-value">{data.courses.length}</span></div>
+        <div className="stat"><span className="stat-label">Total courses <LuBookOpen /></span><span className="stat-value">{data.counts.total}</span></div>
+        <div className="stat"><span className="stat-label">Published</span><span className="stat-value">{data.counts.published}</span></div>
+        <div className="stat"><span className="stat-label">Pending approval</span><span className="stat-value">{data.counts.pendingApproval}</span></div>
+        <div className="stat"><span className="stat-label">Rejected / changes requested</span><span className="stat-value">{data.counts.rejected}</span></div>
         <div className="stat"><span className="stat-label">Learners <LuUsers /></span><span className="stat-value">{data.learnerCount}</span></div>
+        <div className="stat"><span className="stat-label">Revenue <LuIndianRupee /></span><span className="stat-value" style={{ fontSize: '1.7rem' }}>{data.revenue.length ? sumRevenue(data.revenue) : formatPrice(0)}</span><span className="stat-sub">Verified paid orders</span></div>
         <div className="stat"><span className="stat-label">Avg. progress</span><span className="stat-value">{data.averageProgress}%</span></div>
         <div className="stat"><span className="stat-label">Upcoming sessions <LuCalendarDays /></span><span className="stat-value">{data.sessions.length}</span></div>
       </div>
@@ -103,11 +109,19 @@ export function TrainerDashboard() {
           <div className="panel-card-body">
             {data.courses.length ? data.courses.map((c) => (
               <div className="list-row" key={c._id}>
-                <div className="grow"><strong>{c.title}</strong><span className="small muted">{c.lessonCount} lessons · {c.enrollmentCount} learners</span></div>
+                <div className="grow"><strong>{c.title}</strong><span className="small muted">{c.lessonCount} lessons · {c.enrollmentCount} learners{c.reviewNote && ['rejected', 'needs_revision'].includes(c.status) ? ` · ${c.reviewNote}` : ''}</span></div>
                 {R.statusBadge(c.status)}
                 <Link to={`/trainer/courses/${c._id}/curriculum`} className="btn btn-outline btn-sm">Curriculum</Link>
               </div>
             )) : <p className="muted" style={{ margin: 0 }}>No courses assigned yet.</p>}
+          </div>
+        </section>
+        <section className="panel-card">
+          <div className="panel-card-head"><h2>Recent notifications</h2><Link to="/trainer/notifications" className="btn btn-text btn-sm">View all</Link></div>
+          <div className="panel-card-body">
+            {data.recentNotifications?.length ? data.recentNotifications.map((n) => (
+              <div className="list-row" key={n._id}><div className="grow"><strong>{n.title}</strong><span className="small muted">{n.message}</span></div></div>
+            )) : <p className="muted" style={{ margin: 0 }}>Nothing new.</p>}
           </div>
         </section>
         <section className="panel-card">
@@ -131,6 +145,7 @@ export function ManagerDashboard() {
   return (
     <div>
       <div className="panel-head"><div><h1>Content & Live</h1><p>Keep the website fresh and the live calendar full.</p></div><Link to="/manager/content" className="btn btn-sm">Edit Homepage</Link></div>
+      <WorkflowStats workflow={data.workflow} base="manager" />
       <div className="stats">
         <div className="stat"><span className="stat-label">Published articles</span><span className="stat-value">{data.articles}</span></div>
         <div className="stat"><span className="stat-label">Drafts</span><span className="stat-value">{data.drafts}</span></div>
@@ -151,19 +166,21 @@ export function ManagerDashboard() {
 // ─── Courses / sessions (role-aware) ──────────────────────
 export function CoursesScreen({ base }) {
   const { user } = useAuth();
+  const toast = useToast();
   const role = user.role;
   useSeo({ title: 'Courses', noindex: true });
   return (
     <ResourceManager
       title={base === 'manager' ? 'Course presentation' : base === 'trainer' ? 'My courses' : 'Courses'}
-      description={base === 'manager' ? 'Edit descriptions, imagery, preview videos and SEO. Pricing and curriculum are managed by admins and trainers.' : base === 'trainer' ? 'Courses assigned to you. New courses start as drafts for admin review.' : 'Create, price, publish and assign trainers to courses.'}
+      description={base === 'manager' ? 'Edit descriptions, imagery, preview videos and SEO. Approvals live under Course Approvals.' : base === 'trainer' ? 'Create courses, then submit them for manager approval. Approved courses can be published to the marketplace.' : 'Create, price, publish and assign trainers to courses.'}
       endpoint="/courses"
       params={{ scope: 'manage' }}
       entity="course"
       fields={R.courseFields(role)}
       columns={R.courseColumns(base)}
-      filters={[{ name: 'status', label: 'Status', options: [{ value: 'draft', label: 'Draft' }, { value: 'published', label: 'Published' }, { value: 'archived', label: 'Archived' }] }]}
+      filters={[{ name: 'status', label: 'Status', options: [{ value: 'draft', label: 'Draft' }, { value: 'pending_approval', label: 'Pending approval' }, { value: 'under_review', label: 'Under review' }, { value: 'needs_revision', label: 'Needs revision' }, { value: 'approved', label: 'Approved' }, { value: 'published', label: 'Published' }, { value: 'rejected', label: 'Rejected' }, { value: 'archived', label: 'Archived' }] }]}
       canCreate={base !== 'manager'}
+      onSaved={(c) => c?.pulledBack && toast.success('Changes saved. Because this course was already reviewed, it is back to Draft — submit it again for approval.')}
       canDelete={base === 'admin'}
       rowActions={R.courseRowActions(base)}
       deleteMessage="Courses with enrolled learners are archived instead of deleted, so learners keep their history."
@@ -173,6 +190,20 @@ export function CoursesScreen({ base }) {
 
 export function SessionsScreen({ base, kind = 'session' }) {
   const { user } = useAuth();
+  const toast = useToast();
+  const canReview = user.role === 'admin' || user.role === 'manager';
+  const review = async (s, decision, reload) => {
+    let reason = '';
+    if (decision === 'reject') {
+      reason = window.prompt('Reason for rejecting (shown to the trainer):', '');
+      if (reason === null) return;
+    }
+    try {
+      await api.patch(`/live-sessions/${s._id}/review`, { decision, reason });
+      toast.success(decision === 'approve' ? 'Approved — now visible to learners' : 'Rejected');
+      reload();
+    } catch (e) { toast.error(e.message); }
+  };
   useSeo({ title: kind === 'event' ? 'Events' : 'Live Sessions', noindex: true });
   return (
     <ResourceManager
@@ -184,7 +215,18 @@ export function SessionsScreen({ base, kind = 'session' }) {
       createLabel={kind === 'event' ? 'Create Event' : 'Schedule Session'}
       fields={R.sessionFields(user.role, kind)}
       columns={R.sessionColumns}
-      rowActions={(s) => <Link to={`/${s.kind === 'event' ? 'events' : 'live-sessions'}/${s.slug}`} className="icon-btn" target="_blank" aria-label="View"><LuEye /></Link>}
+      filters={canReview ? [{ name: 'approvalStatus', label: 'Approval', options: [{ value: 'pending', label: 'Pending approval' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }] }] : []}
+      rowActions={(s, { reload }) => (
+        <>
+          {canReview && s.approvalStatus !== 'approved' && (
+            <button type="button" className="icon-btn" title="Approve" aria-label="Approve" onClick={() => review(s, 'approve', reload)}><LuCheck /></button>
+          )}
+          {canReview && s.approvalStatus === 'pending' && (
+            <button type="button" className="icon-btn" title="Reject" aria-label="Reject" onClick={() => review(s, 'reject', reload)}><LuX /></button>
+          )}
+          <Link to={`/${s.kind === 'event' ? 'events' : 'live-sessions'}/${s.slug}`} className="icon-btn" target="_blank" aria-label="View"><LuEye /></Link>
+        </>
+      )}
       searchable={false}
       emptyMessage={base === 'trainer' ? 'Schedule your first live session.' : undefined}
     />

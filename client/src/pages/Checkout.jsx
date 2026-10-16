@@ -177,7 +177,7 @@ export function CheckoutReturn() {
         const { data } = await api.post('/payments/verify', { orderId, payload: { sessionId: params.get('session_id') } });
         if (data.status === 'paid') {
           const { data: order } = await api.get(`/orders/${orderId}`);
-          navigate(`/checkout/success?course=${order.course?.slug || ''}`, { replace: true });
+          navigate(order.kind === 'package' ? '/dashboard/plans?paid=1' : `/checkout/success?course=${order.course?.slug || ''}`, { replace: true });
         } else if (tries++ < 5) setTimeout(attempt, 2000);
         else setState({ phase: 'pending', message: 'Your payment is processing. You will be enrolled automatically once it is confirmed.' });
       } catch (e) {

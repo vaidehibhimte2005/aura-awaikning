@@ -169,16 +169,16 @@ export function MyPayments() {
   const { data, loading, error, reload } = useFetch('/payments/me');
   return (
     <div>
-      <div className="panel-head"><div><h1>Payment history</h1><p>Receipts for your program purchases.</p></div></div>
+      <div className="panel-head"><div><h1>Payment history</h1><p>Receipts for your plan purchases.</p></div></div>
       <AsyncBlock loading={loading && !data} error={error} onRetry={reload} empty={!data?.length} emptyState={<EmptyState icon={LuCreditCard} title="No payments yet" message="Free programs don't appear here." />}>
         <div className="table-wrap">
           <table className="table table-responsive">
-            <thead><tr><th>Date</th><th>Program</th><th>Order</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Item</th><th>Order</th><th>Amount</th><th>Status</th></tr></thead>
             <tbody>
               {data?.map((p) => (
                 <tr key={p._id}>
                   <td data-label="Date">{formatDate(p.createdAt)}</td>
-                  <td data-label="Program">{p.course ? <Link to={`/courses/${p.course.slug}`}>{p.course.title}</Link> : '—'}</td>
+                  <td data-label="Item">{p.package ? p.package.name : p.course ? <Link to={`/courses/${p.course.slug}`}>{p.course.title}</Link> : '—'}</td>
                   <td data-label="Order"><code>{p.order?.orderNumber}</code></td>
                   <td data-label="Amount">{formatPrice(p.amount, p.currency)}</td>
                   <td data-label="Status">{statusBadge(p.status)}</td>

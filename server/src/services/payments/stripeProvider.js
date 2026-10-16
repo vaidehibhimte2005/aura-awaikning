@@ -36,7 +36,7 @@ export const stripeProvider = {
         },
       ],
       success_url: `${env.siteUrl}/checkout/return?order=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${env.siteUrl}/checkout/${course.slug}?cancelled=1`,
+      cancel_url: `${env.siteUrl}${course.cancelPath || `/checkout/${course.slug}`}?cancelled=1`,
     });
     return { providerOrderId: session.id, clientPayload: { checkoutUrl: session.url } };
   },

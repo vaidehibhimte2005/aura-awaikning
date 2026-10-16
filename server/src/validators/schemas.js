@@ -14,19 +14,104 @@ const password = z
   .regex(/[A-Za-z]/, 'Password must contain a letter')
   .regex(/\d/, 'Password must contain a number');
 
-export const registerSchema = z
-  .object({
-    name: z.string().trim().min(2, 'Please enter your name').max(80),
-    email: z.string().trim().toLowerCase().email('Please enter a valid email'),
-    password,
-    confirmPassword: z.string(),
-  })
-  .refine((d) => d.password === d.confirmPassword, { message: 'Passwords do not match', path: ['confirmPassword'] });
+/** Accepts "+91 98765-43210" style input; stores digits with an optional leading +. */
+const phone = z
+  .string()
+  .trim()
+  .transform((v) => v.replace(/[\s\-().]/g, ''))
+  .refine((v) => /^\+?\d{7,15}$/.test(v), 'Please enter a valid mobile number');
+const email = z.string().trim().toLowerCase().email('Please enter a valid email');
+const mustAccept = (msg) => z.literal(true, { errorMap: () => ({ message: msg }) });
+const reqStr = (label, max = 120) => z.string().trim().min(1, `${label} is required`).max(max);
 
-export const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Please enter a valid email'),
-  password: z.string().min(1, 'Please enter your password'),
+const passwordPair = (shape) =>
+  z.object({ ...shape, password, confirmPassword: z.string() }).refine((d) => d.password === d.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export const registerSchema = passwordPair({
+  name: z.string().trim().min(2, 'Please enter your name').max(80),
+  email,
+  phone,
+  country: optStr(60),
+  state: optStr(60),
+  city: optStr(60),
+  interests: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  learningGoals: optStr(1000),
+  acceptTerms: mustAccept('You must accept the Terms and Conditions'),
+  acceptPrivacy: mustAccept('You must accept the Privacy Policy'),
 });
+
+const trainerSocials = z
+  .object({ website: url, instagram: url, youtube: url, linkedin: url, facebook: url, other: url })
+  .partial()
+  .optional();
+
+const trainerProfileFields = {
+  photo: url,
+  country: reqStr('Country', 60),
+  state: reqStr('State', 60),
+  city: reqStr('City', 60),
+  gender: optStr(30),
+  dateOfBirth: z.coerce.date().optional().or(z.literal('')).transform((v) => v || undefined),
+  displayName: z.string().trim().min(2, 'Display name is required').max(80),
+  title: z.string().trim().min(3, 'Professional headline is required').max(120),
+  shortBio: z.string().trim().min(20, 'Short biography should be at least 20 characters').max(240),
+  bio: optStr(5000),
+  specialties: z.array(z.string().trim().min(1).max(60)).min(1, 'Add at least one area of expertise').max(30),
+  experienceYears: z.coerce.number().min(0).max(80),
+  languages: z.array(z.string().trim().min(1).max(40)).min(1, 'Add at least one language').max(20),
+  qualifications: z.string().trim().min(3, 'Please list your qualifications or certifications').max(3000),
+  organization: optStr(120),
+  socials: trainerSocials,
+  teachingCategories: z.array(z.string().trim().min(1).max(60)).min(1, 'Choose at least one teaching category').max(20),
+  topics: z.array(z.string().trim().min(1).max(80)).min(1, 'Add at least one topic').max(40),
+  teachingFormat: z.enum(['online', 'offline', 'both']),
+  sessionDuration: optStr(60),
+  sessionType: z.enum(['individual', 'group', 'both']),
+  introVideoUrl: url,
+  methodology: z.string().trim().min(10, 'Please describe your teaching approach').max(3000),
+  targetAudience: z.string().trim().min(3, 'Please describe your target audience').max(1000),
+};
+
+export const trainerRegisterSchema = passwordPair({
+  name: z.string().trim().min(2, 'Please enter your full name').max(80),
+  email,
+  phone,
+  ...trainerProfileFields,
+  acceptTerms: mustAccept('You must accept the Terms and Conditions'),
+  acceptTrainerAgreement: mustAccept('You must accept the Trainer Agreement'),
+  acceptPrivacy: mustAccept('You must accept the Privacy Policy'),
+});
+
+/** Re-submission after NEEDS_INFORMATION / REJECTED: profile fields only. */
+export const trainerApplicationUpdateSchema = z.object(trainerProfileFields).partial();
+
+export const trainerApplicationReviewSchema = z.object({
+  decision: z.enum(['start_review', 'approve', 'reject', 'request_information']),
+  reason: optStr(1000),
+});
+export const trainerApplicationNoteSchema = z.object({ text: z.string().trim().min(1).max(2000) });
+
+export const courseReviewSchema = z.object({
+  decision: z.enum(['start_review', 'approve', 'reject', 'request_changes']),
+  reason: optStr(1000),
+});
+
+// Login accepts an email address OR a mobile number (`email` kept for older clients).
+export const loginSchema = z
+  .object({
+    identifier: z.string().trim().min(3).max(120).optional(),
+    email: z.string().trim().max(120).optional(),
+    password: z.string().min(1, 'Please enter your password'),
+  })
+  .refine((d) => d.identifier || d.email, { message: 'Please enter your email or mobile number', path: ['identifier'] })
+  .transform((d) => ({ identifier: d.identifier || d.email, password: d.password }));
+
+export const verifyEmailSchema = z.object({ token: z.string().min(20).max(200) });
+export const emailOnlySchema = z.object({ email });
+export const resetPasswordSchema = passwordPair({ token: z.string().min(20).max(200) });
 
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
@@ -84,6 +169,8 @@ export const courseSchema = z.object({
   outcomes: strList,
   tags: strList,
   status: z.enum(['draft', 'published', 'archived']).optional(),
+  targetAudience: optStr(1000),
+  refundPolicy: optStr(2000),
   isFeatured: bool,
   certificateEnabled: bool,
   seo: z.object({ metaTitle: optStr(70), metaDescription: optStr(170) }).partial().optional(),
@@ -134,7 +221,18 @@ export const trainerSchema = z.object({
   photo: url,
   specialties: strList,
   experienceYears: z.coerce.number().min(0).max(80).optional(),
-  socials: z.object({ website: url, instagram: url, youtube: url, linkedin: url }).partial().optional(),
+  socials: z.object({ website: url, instagram: url, youtube: url, linkedin: url, facebook: url, other: url }).partial().optional(),
+  languages: strList,
+  qualifications: optStr(3000),
+  organization: optStr(120),
+  teachingCategories: strList,
+  topics: strList,
+  teachingFormat: z.enum(['online', 'offline', 'both']).optional(),
+  sessionDuration: optStr(60),
+  sessionType: z.enum(['individual', 'group', 'both']).optional(),
+  introVideoUrl: url,
+  methodology: optStr(3000),
+  targetAudience: optStr(1000),
   isPublished: bool,
   order: z.coerce.number().optional(),
 });
@@ -163,6 +261,10 @@ export const liveSessionSchema = z.object({
   capacity: z.coerce.number().min(0).optional(),
 });
 export const liveSessionUpdateSchema = liveSessionSchema.partial();
+export const liveSessionReviewSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  reason: optStr(500),
+});
 
 // ─── Checkout ─────────────────────────────────────────────
 export const checkoutSchema = z.object({ courseId: objectId });

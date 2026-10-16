@@ -26,10 +26,23 @@ import {
   SiteSetting,
   Testimonial,
   Trainer,
+  TrainerApplication,
+  ActivityLog,
+  AttendanceEvent,
+  Booking,
+  Earning,
+  Package,
+  Slot,
+  Subscription,
+  TrainingConfig,
+  UsageRecord,
   User,
 } from '../models/index.js';
 import { recalcCourseStats, enrollUser, recomputeProgress } from '../services/learningService.js';
 import { DEFAULT_SETTINGS } from './defaultSettings.js';
+import { seedDemoCourses } from './demoCourses.js';
+import { seedDefaultPackages } from './defaultPackages.js';
+import { zonedToUtc } from '../utils/time.js';
 
 // Demo video — replace with your own lesson videos from the admin/trainer panel.
 const DEMO_VIDEO = 'inpok4MKVLM';
@@ -41,7 +54,7 @@ async function run() {
   await connectDB();
   if (reset) {
     if (env.isProd) throw new Error('Refusing to reset in production');
-    const models = [Announcement, Article, Category, Certificate, ContactMessage, Course, Enrollment, FAQ, Lesson, LessonProgress, LiveSession, Notification, Order, Payment, SiteSetting, Testimonial, Trainer, User];
+    const models = [Announcement, Article, Category, Certificate, ContactMessage, Course, Enrollment, FAQ, Lesson, LessonProgress, LiveSession, Notification, Order, Payment, SiteSetting, Testimonial, Trainer, TrainerApplication, ActivityLog, AttendanceEvent, Booking, Earning, Package, Slot, Subscription, TrainingConfig, UsageRecord, User];
     await Promise.all(models.map((m) => m.deleteMany({})));
     console.log('• Cleared existing data');
   } else if (await Course.exists({})) {
@@ -51,7 +64,6 @@ async function run() {
 
   const password = process.env.SEED_ADMIN_PASSWORD || 'ChangeMe@123';
   const admin = await User.create({ name: 'Aura Admin', email: process.env.SEED_ADMIN_EMAIL || 'admin@auraawakening.com', password, role: 'admin', emailVerified: true });
-  const manager = await User.create({ name: 'Maya Content', email: 'manager@auraawakening.com', password, role: 'manager' });
   const learner = await User.create({ name: 'Arjun Learner', email: 'learner@auraawakening.com', password, role: 'learner' });
 
   const trainerData = [
@@ -62,7 +74,7 @@ async function run() {
   const trainers = [];
   for (const [i, t] of trainerData.entries()) {
     // eslint-disable-next-line no-await-in-loop
-    const user = await User.create({ name: t.name, email: t.email, password, role: 'trainer' });
+    const user = await User.create({ name: t.name, email: t.email, password, role: 'trainer', emailVerified: true }); // admin-created style: active, no application state
     // eslint-disable-next-line no-await-in-loop
     trainers.push(await Trainer.create({
       user: user._id,
@@ -176,10 +188,28 @@ async function run() {
   await Announcement.create({ title: 'New: Mindful Energy program', message: 'Our new 8-lesson energy program is now open for enrollment.', link: '/courses/mindful-energy', linkLabel: 'Explore', showAsBanner: true, createdBy: admin._id });
   await SiteSetting.insertMany(Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value })));
 
+  await seedDemoCourses();
+
+  // ── Training platform demo data (packages are priced from the admin's daily rate) ──
+  await TrainingConfig.create({ key: 'default' });
+  await seedDefaultPackages();
+  const tz = 'Asia/Kolkata';
+  const dayStr = (offset) => new Date(Date.now() + offset * 86400000 + 5.5 * 3600000).toISOString().slice(0, 10);
+  const slotDocs = [];
+  for (const t of trainers) {
+    for (let d = 1; d <= 7; d += 1) {
+      for (const h of ['07:00', '08:00', '17:00', '18:00']) {
+        const start = zonedToUtc(dayStr(d), h, tz);
+        slotDocs.push({ trainer: t.user, start, end: new Date(start.getTime() + 3600000), durationMin: 60 });
+      }
+    }
+  }
+  await Slot.insertMany(slotDocs);
+  console.log(`• Published ${slotDocs.length} demo training slots`);
+
   console.log('\n✓ Seed complete\n');
   console.log('  Logins (password for all:', password, ')');
   console.log('  admin    →', admin.email);
-  console.log('  manager  →', manager.email);
   console.log('  trainer  →', trainerData[0].email);
   console.log('  learner  →', learner.email, '\n');
 }

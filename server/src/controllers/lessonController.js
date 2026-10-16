@@ -3,6 +3,16 @@ import { ApiError, asyncHandler, created, ok } from '../utils/http.js';
 import { assertCanManageCourse, canManageCourse, hasCourseAccess } from '../services/accessService.js';
 import { recalcCourseStats } from '../services/learningService.js';
 import { notify } from '../services/notificationService.js';
+import { pullBackForReview } from '../services/courseWorkflowService.js';
+import { can, PERMISSIONS } from '../config/permissions.js';
+
+/** Trainers changing lessons of an approved/live course must get the course re-approved. */
+async function guardReviewedCourse(req, course) {
+  if (can(req.user, PERMISSIONS.COURSES_MANAGE_ALL)) return false;
+  if (!(await pullBackForReview(course, req.user))) return false;
+  await course.save();
+  return true;
+}
 
 /** GET /api/lessons?course=:id — management list (full fields) for authorised editors. */
 export const listLessons = asyncHandler(async (req, res) => {
@@ -38,6 +48,7 @@ export const getLesson = asyncHandler(async (req, res) => {
 
 export const createLesson = asyncHandler(async (req, res) => {
   const course = await assertCanManageCourse(req, req.body.course);
+  const pulledBack = await guardReviewedCourse(req, course);
   const data = { ...req.body, createdBy: req.user._id };
   if (data.order === undefined) {
     const last = await Lesson.findOne({ course: course._id }).sort({ order: -1 }).select('order');
@@ -45,7 +56,7 @@ export const createLesson = asyncHandler(async (req, res) => {
   }
   const lesson = await Lesson.create(data);
   await recalcCourseStats(course._id);
-  if (course.status === 'published' && lesson.isPublished) {
+  if (!pulledBack && course.status === 'published' && lesson.isPublished) {
     const learners = await Enrollment.find({ course: course._id, status: 'active' }).distinct('user');
     await notify(learners, {
       type: 'lesson_new',
@@ -60,7 +71,8 @@ export const createLesson = asyncHandler(async (req, res) => {
 export const updateLesson = asyncHandler(async (req, res) => {
   const lesson = await Lesson.findById(req.params.id);
   if (!lesson) throw ApiError.notFound('Lesson not found');
-  await assertCanManageCourse(req, lesson.course);
+  const owning = await assertCanManageCourse(req, lesson.course);
+  await guardReviewedCourse(req, owning);
   lesson.set(req.body);
   await lesson.save();
   await recalcCourseStats(lesson.course);
@@ -70,7 +82,8 @@ export const updateLesson = asyncHandler(async (req, res) => {
 export const deleteLesson = asyncHandler(async (req, res) => {
   const lesson = await Lesson.findById(req.params.id);
   if (!lesson) throw ApiError.notFound('Lesson not found');
-  await assertCanManageCourse(req, lesson.course);
+  const owning = await assertCanManageCourse(req, lesson.course);
+  await guardReviewedCourse(req, owning);
   await LessonProgress.deleteMany({ lesson: lesson._id });
   await lesson.deleteOne();
   await recalcCourseStats(lesson.course);

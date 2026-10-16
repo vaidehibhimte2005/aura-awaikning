@@ -1,10 +1,13 @@
 import crypto from 'crypto';
-import { Course, Enrollment, Order, Payment } from '../models/index.js';
+import { Course, Enrollment, Order, Package, Payment, Subscription } from '../models/index.js';
 import { ApiError } from '../utils/http.js';
 import { env } from '../config/env.js';
 import { getProvider, activeProviderName } from './payments/index.js';
 import { enrollUser } from './learningService.js';
-import { notify } from './notificationService.js';
+import { notify, staffIds } from './notificationService.js';
+import { getConfig } from './training/configService.js';
+import { computePrice } from './training/pricingService.js';
+import { activateFromOrder, resolvePurchaseMode } from './training/subscriptionService.js';
 
 const orderNumber = () =>
   `AA${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
@@ -67,6 +70,75 @@ export async function createCheckout({ user, courseId }) {
   };
 }
 
+/**
+ * Checkout for a training package. The amount is computed here from the admin's current
+ * daily rate and the package's discount — nothing price-related is accepted from the client.
+ */
+export async function createPackageCheckout({ user, packageId, mode }) {
+  const pkg = await Package.findOne({ _id: packageId, isActive: true });
+  if (!pkg) throw ApiError.notFound('This plan is not available');
+  const cfg = await getConfig();
+  const price = computePrice(pkg, cfg);
+  if (price.amount <= 0) throw ApiError.badRequest('This plan has no payable amount.');
+  const purchase = await resolvePurchaseMode({ userId: user._id, pkg, requested: mode });
+
+  const providerName = activeProviderName();
+  const provider = getProvider(providerName);
+  const order = await Order.create({
+    orderNumber: orderNumber(),
+    kind: 'package',
+    user: user._id,
+    package: pkg._id,
+    purchaseMode: purchase.mode,
+    pricing: { dailyRate: price.dailyRate, baseAmount: price.baseAmount, discount: price.discount, amount: price.amount, trainingDays: pkg.trainingDays, validityDays: pkg.validityDays },
+    amount: price.amount,
+    currency: cfg.currency,
+    provider: providerName,
+  });
+  let checkout;
+  try {
+    checkout = await provider.createCheckout({
+      order,
+      course: { id: pkg.id, title: pkg.name, slug: '', cancelPath: '/dashboard/plans', shortDescription: pkg.description },
+      user,
+    });
+  } catch (err) {
+    order.status = 'failed';
+    order.failureReason = err.message;
+    await order.save();
+    throw new ApiError(502, `Could not start payment: ${err.message}`);
+  }
+  order.providerOrderId = checkout.providerOrderId;
+  order.status = 'pending';
+  await order.save();
+  await Payment.create({
+    order: order._id,
+    user: user._id,
+    package: pkg._id,
+    amount: order.amount,
+    currency: order.currency,
+    provider: providerName,
+    providerOrderId: checkout.providerOrderId,
+    status: 'pending',
+  });
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    provider: providerName,
+    amount: order.amount,
+    currency: order.currency,
+    mode: purchase.mode,
+    package: { id: pkg.id, name: pkg.name, ...price },
+    ...checkout.clientPayload,
+  };
+}
+
+/** Grants whatever the order paid for. Idempotent — safe to call from verify, webhook and the reconciler. */
+export async function fulfilOrder(order) {
+  if (order.kind === 'package') return activateFromOrder(order);
+  return enrollUser({ userId: order.user, courseId: order.course, source: 'purchase', orderId: order._id });
+}
+
 /** Marks payment+order paid and enrolls. Idempotent (safe for webhook + client verify racing). */
 async function finalizePaid(payment, { transactionId, method, raw, via }) {
   const claimed = await Payment.findOneAndUpdate(
@@ -75,18 +147,32 @@ async function finalizePaid(payment, { transactionId, method, raw, via }) {
     { new: true },
   );
   const order = await Order.findById(payment.order);
-  if (!claimed) return { order, alreadyProcessed: true };
+  if (!claimed) {
+    // A previous attempt may have crashed after marking paid but before granting access.
+    if (order.status === 'paid') await fulfilOrder(order);
+    return { order, alreadyProcessed: true };
+  }
 
   order.status = 'paid';
   order.paidAt = new Date();
   await order.save();
-  await enrollUser({ userId: order.user, courseId: order.course, source: 'purchase', orderId: order._id });
+  await fulfilOrder(order);
   await notify(order.user, {
     type: 'payment_success',
     title: 'Payment received',
     message: `Thank you — order ${order.orderNumber} is confirmed.`,
-    link: '/dashboard/payments',
+    link: order.kind === 'package' ? '/dashboard/plans' : '/dashboard/payments',
+    related: { type: 'order', id: order._id },
+    idempotencyKey: `payment_success:${order._id}:learner`,
   }, { channels: ['email'] });
+  await notify(await staffIds(['admin']), {
+    type: 'payment_success',
+    title: 'Payment confirmed',
+    message: `Order ${order.orderNumber} — ${order.currency} ${order.amount} (${order.provider}).`,
+    link: '/admin/payments',
+    related: { type: 'order', id: order._id },
+    idempotencyKey: `payment_success:${order._id}:admin`,
+  });
   return { order, alreadyProcessed: false };
 }
 
@@ -104,7 +190,10 @@ export async function verifyPayment({ user, orderId, payload }) {
   if (!order) throw ApiError.notFound('Order not found');
   const payment = await Payment.findOne({ order: order._id, providerOrderId: order.providerOrderId });
   if (!payment) throw ApiError.notFound('Payment not found');
-  if (payment.status === 'paid') return { status: 'paid', orderId: order.id };
+  if (payment.status === 'paid') {
+    if (order.status === 'paid') await fulfilOrder(order);
+    return { status: 'paid', orderId: order.id };
+  }
 
   const provider = getProvider(payment.provider);
   const result = await provider.verify({ payment, payload });
@@ -116,6 +205,16 @@ export async function verifyPayment({ user, orderId, payload }) {
       title: 'Payment was not completed',
       message: result.reason || 'Your payment could not be verified. No enrollment was created.',
       link: '/dashboard/payments',
+      related: { type: 'order', id: order._id },
+      idempotencyKey: `payment_failed:${order._id}:learner`,
+    });
+    await notify(await staffIds(['admin']), {
+      type: 'payment_failed',
+      title: 'Payment failed',
+      message: `Order ${order.orderNumber}: ${result.reason || 'verification failed'}.`,
+      link: '/admin/payments',
+      related: { type: 'order', id: order._id },
+      idempotencyKey: `payment_failed:${order._id}:admin`,
     });
     throw ApiError.badRequest(result.reason || 'Payment verification failed');
   }
@@ -156,6 +255,10 @@ export async function refundPayment(paymentId) {
   payment.refundedAt = new Date();
   await payment.save();
   await Order.updateOne({ _id: payment.order }, { status: 'refunded' });
-  await Enrollment.updateOne({ user: payment.user, course: payment.course }, { status: 'revoked' });
+  if (payment.package) await Subscription.updateMany({ order: payment.order, status: 'active' }, { status: 'cancelled', cancelledAt: new Date(), cancelReason: 'Payment refunded' });
+  else await Enrollment.updateOne({ user: payment.user, course: payment.course }, { status: 'revoked' });
+  const refund = { type: 'refund', related: { type: 'payment', id: payment._id } };
+  await notify(payment.user, { ...refund, title: 'Refund processed', message: 'Your payment was refunded and the access it bought was removed.', link: '/dashboard/payments', idempotencyKey: `refund:${payment._id}:learner` });
+  await notify(await staffIds(['admin']), { ...refund, title: 'Refund issued', message: `Payment ${payment.id} was refunded.`, link: '/admin/payments', idempotencyKey: `refund:${payment._id}:admin` });
   return payment;
 }

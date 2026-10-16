@@ -3,6 +3,7 @@ import { ApiError, asyncHandler, created, escapeRegex, getPagination, ok, pageMe
 import { uniqueSlug } from '../utils/slugify.js';
 import { can, PERMISSIONS } from '../config/permissions.js';
 import { trainerIdFor } from '../services/accessService.js';
+import { ratingsFor } from '../services/training/ratingService.js';
 
 const isEditor = (req) => req.user && can(req.user, PERMISSIONS.TRAINERS_MANAGE);
 
@@ -15,8 +16,10 @@ export const listTrainers = asyncHandler(async (req, res) => {
     Trainer.countDocuments(filter),
   ]);
   // Only editors may see trainer login emails.
+  const ratings = await ratingsFor(items.map((t) => t.user?._id).filter(Boolean));
   const data = items.map((t) => {
     const o = t.toObject();
+    o.rating = ratings.get(String(t.user?._id)) || { average: null, count: 0 };
     if (!isEditor(req)) delete o.user;
     return o;
   });

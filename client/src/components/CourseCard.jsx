@@ -10,7 +10,7 @@ export function CourseCard({ course }) {
   return (
     <article className="card course-card">
       <div className="cover">
-        {course.isFeatured && <span className="badge badge-gold">Featured</span>}
+        {course.isDemo ? <span className="badge badge-muted">Sample course</span> : course.isFeatured && <span className="badge badge-gold">Featured</span>}
         {course.coverImage ? (
           <img src={course.coverImage} alt="" loading="lazy" />
         ) : (

@@ -41,6 +41,27 @@ const userSchema = new Schema(
     bio: { type: String, maxlength: 600, default: '' },
     isActive: { type: Boolean, default: true },
     emailVerified: { type: Boolean, default: false },
+    // Trainer onboarding state, mirrored from TrainerApplication so every request can
+    // gate on it without an extra query. Undefined = not an applicant (trusted, e.g. admin-created).
+    trainerStatus: { type: String, enum: ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_INFORMATION'] },
+    // Learner profile
+    location: {
+      country: { type: String, trim: true, default: '' },
+      state: { type: String, trim: true, default: '' },
+      city: { type: String, trim: true, default: '' },
+    },
+    interests: [{ type: String, trim: true }],
+    learningGoals: { type: String, maxlength: 1000, default: '' },
+    consents: {
+      terms: Date,
+      privacy: Date,
+      trainerAgreement: Date,
+    },
+    // One-time tokens (SHA-256 hashed at rest).
+    emailVerifyTokenHash: { type: String, select: false },
+    emailVerifyExpires: { type: Date, select: false },
+    passwordResetTokenHash: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
     authProviders: { type: [authProviderSchema], default: [{ provider: 'password' }] },
     refreshTokens: { type: [refreshTokenSchema], select: false, default: [] },
     lastLoginAt: Date,
@@ -71,6 +92,10 @@ userSchema.methods.toJSON = function toJSON() {
   const obj = this.toObject({ virtuals: true });
   delete obj.password;
   delete obj.refreshTokens;
+  delete obj.emailVerifyTokenHash;
+  delete obj.emailVerifyExpires;
+  delete obj.passwordResetTokenHash;
+  delete obj.passwordResetExpires;
   delete obj.__v;
   return obj;
 };

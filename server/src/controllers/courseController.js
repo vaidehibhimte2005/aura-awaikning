@@ -1,17 +1,25 @@
-import { Category, Course, Enrollment, Lesson, LessonProgress } from '../models/index.js';
+import { Category, Course, Enrollment, Lesson, LessonProgress, User } from '../models/index.js';
 import { ApiError, asyncHandler, created, escapeRegex, getPagination, ok, pageMeta, pick } from '../utils/http.js';
+import { logActivity } from '../services/activityService.js';
 import { uniqueSlug } from '../utils/slugify.js';
 import { can, PERMISSIONS } from '../config/permissions.js';
 import { assertCanManageCourse, canManageCourse, hasCourseAccess, trainerIdFor } from '../services/accessService.js';
 import { recalcCourseStats } from '../services/learningService.js';
+import {
+  atomicTransition,
+  EDITABLE_STATUSES,
+  notifyCourseEvent,
+  pullBackForReview,
+  submissionProblems,
+} from '../services/courseWorkflowService.js';
 
 const LIST_FIELDS =
-  'title slug shortDescription coverImage category level trainers price compareAtPrice currency lessonCount durationMinutes enrollmentCount isFeatured status publishedAt createdAt';
+  'title slug shortDescription coverImage category level trainers price compareAtPrice currency lessonCount durationMinutes enrollmentCount isFeatured isDemo status submittedAt reviewNote publishedAt createdAt';
 
 /** Fields the Content & Live Manager may edit (presentation, not curriculum or price). */
 const PRESENTATION_FIELDS = ['shortDescription', 'description', 'coverImage', 'previewVideo', 'outcomes', 'requirements', 'tags', 'isFeatured', 'seo'];
 /** Fields a trainer may edit on an assigned course (no price / publishing / trainer assignment). */
-const TRAINER_FIELDS = ['title', 'shortDescription', 'description', 'coverImage', 'previewVideo', 'outcomes', 'requirements', 'tags', 'level', 'language', 'category'];
+const TRAINER_FIELDS = ['title', 'shortDescription', 'description', 'coverImage', 'previewVideo', 'outcomes', 'requirements', 'tags', 'level', 'language', 'category', 'price', 'compareAtPrice', 'targetAudience', 'refundPolicy'];
 
 /**
  * GET /api/courses
@@ -92,7 +100,11 @@ export const getCourse = asyncHandler(async (req, res) => {
 
   const manager = await canManageCourse(req, course);
   const presenter = req.user && can(req.user, PERMISSIONS.COURSES_PRESENTATION);
-  if (course.status !== 'published' && !manager && !presenter) throw ApiError.notFound('Course not found');
+  if (course.status !== 'published' && !manager && !presenter) {
+    // Learners who already own the course keep access if it was later pulled back for re-review.
+    const owns = req.user && (await Enrollment.exists({ user: req.user._id, course: course._id, status: { $ne: 'revoked' } }));
+    if (!owns || course.status === 'archived') throw ApiError.notFound('Course not found');
+  }
 
   const access = await hasCourseAccess(req, course);
   const lessonFilter = { course: course._id };
@@ -140,15 +152,18 @@ export const createCourse = asyncHandler(async (req, res) => {
   const data = { ...req.body, createdBy: req.user._id };
   data.slug = await uniqueSlug(Course, data.slug || data.title);
   if (!can(req.user, PERMISSIONS.COURSES_MANAGE_ALL)) {
-    // Trainers create drafts assigned to themselves; admin publishes & prices.
+    // Trainers create drafts assigned to themselves; a manager must approve before publication.
     const tid = await trainerIdFor(req);
     if (!tid) throw ApiError.forbidden('A trainer profile is required to create courses');
     data.trainers = [tid];
     data.status = 'draft';
-    delete data.price;
+    data.currency = 'INR';
     delete data.isFeatured;
+    delete data.certificateEnabled;
+    delete data.seo;
   }
   const course = await Course.create(data);
+  await logActivity({ actor: req.user, action: 'course.created', entityType: 'course', entity: course, entityLabel: course.title, to: course.status });
   created(res, course);
 });
 
@@ -167,13 +182,20 @@ export const updateCourse = asyncHandler(async (req, res) => {
     throw ApiError.forbidden('You can only manage courses assigned to you');
   }
 
+  // Status only ever changes through the workflow endpoints (submit / review / publish).
+  delete data.status;
+  const isStaffEdit = can(req.user, PERMISSIONS.COURSES_MANAGE_ALL);
+
   if (data.slug !== undefined || (data.title && data.title !== course.title && course.status === 'draft')) {
     data.slug = await uniqueSlug(Course, data.slug || data.title, course._id);
   }
   if (data.previewVideo) data.previewVideo = { ...course.previewVideo?.toObject?.(), ...data.previewVideo };
+
+  // A trainer touching reviewed/live content pulls it back to draft: unapproved changes never go public.
+  const pulledBack = !isStaffEdit && (await trainerChangedContent(course, data)) && (await pullBackForReview(course, req.user));
   course.set(data);
   await course.save();
-  ok(res, course);
+  ok(res, { ...course.toObject(), pulledBack });
 });
 
 /** Archive instead of hard-delete when learners are enrolled, to protect their history. */
@@ -189,6 +211,135 @@ export const deleteCourse = asyncHandler(async (req, res) => {
   await Lesson.deleteMany({ course: course._id });
   await course.deleteOne();
   return ok(res, { id: course.id, deleted: true });
+});
+
+/** True when applying `data` would change at least one field. */
+async function trainerChangedContent(course, data) {
+  return Object.entries(data).some(([k, v]) => {
+    if (v === undefined) return false;
+    const cur = course[k];
+    if (Array.isArray(cur) || (cur && typeof cur === 'object' && !(cur instanceof Date) && !cur._bsontype)) {
+      return JSON.stringify(cur?.toObject?.() ?? cur) !== JSON.stringify(v);
+    }
+    return String(cur ?? '') !== String(v ?? '');
+  });
+}
+
+// ─── Approval workflow ────────────────────────────────────
+
+const ownsCourse = async (req, course) => !can(req.user, PERMISSIONS.COURSES_MANAGE_ALL) && (await canManageCourse(req, course));
+
+/** POST /api/courses/:id/submit — the owning trainer sends the course for approval. */
+export const submitCourse = asyncHandler(async (req, res) => {
+  const course = await Course.findById(req.params.id);
+  if (!course) throw ApiError.notFound('Course not found');
+  if (!(await ownsCourse(req, course)) && !can(req.user, PERMISSIONS.COURSES_MANAGE_ALL)) throw ApiError.forbidden('You can only submit your own courses');
+  if (!EDITABLE_STATUSES.includes(course.status)) {
+    throw ApiError.conflict(`This course is ${course.status.replace('_', ' ')} and cannot be submitted right now`);
+  }
+  const problems = await submissionProblems(course);
+  if (problems.length) throw ApiError.badRequest('Please complete the course before submitting', { problems });
+
+  const updated = await atomicTransition(course, {
+    from: EDITABLE_STATUSES,
+    to: 'pending_approval',
+    by: req.user,
+    action: 'course.submitted',
+    set: { submittedAt: new Date(), reviewNote: '' },
+  });
+  if (!updated) throw ApiError.conflict('This course was already submitted');
+  await notifyCourseEvent(updated, { event: 'submitted', actor: req.user });
+  ok(res, updated);
+});
+
+const REVIEW_RULES = {
+  start_review: { from: ['pending_approval'], to: 'under_review', event: 'under_review' },
+  approve: { from: ['pending_approval', 'under_review'], to: 'approved', event: 'approved' },
+  reject: { from: ['pending_approval', 'under_review'], to: 'rejected', event: 'rejected', reasonRequired: true },
+  request_changes: { from: ['pending_approval', 'under_review'], to: 'needs_revision', event: 'needs_revision', reasonRequired: true },
+};
+
+/** POST /api/courses/:id/review — managers only (courses:review); trainers can never approve. */
+export const reviewCourse = asyncHandler(async (req, res) => {
+  const { decision, reason = '' } = req.body;
+  const rule = REVIEW_RULES[decision];
+  if (rule.reasonRequired && !reason.trim()) throw ApiError.badRequest('A reason or description of the changes is required');
+
+  const course = await Course.findById(req.params.id);
+  if (!course) throw ApiError.notFound('Course not found');
+  // A reviewer who is also the author may not approve their own work.
+  if (course.createdBy?.equals(req.user._id) && decision !== 'start_review') {
+    throw ApiError.forbidden('You cannot review a course you created');
+  }
+  if (!rule.from.includes(course.status)) {
+    throw ApiError.conflict(`This course is ${course.status.replace('_', ' ')} and cannot be reviewed that way`);
+  }
+  const now = new Date();
+  const set = { reviewedBy: req.user._id, reviewedAt: now };
+  if (decision === 'approve') Object.assign(set, { approvedAt: now, approvedBy: req.user._id, reviewNote: '' });
+  else if (decision !== 'start_review') set.reviewNote = reason.trim();
+
+  const updated = await atomicTransition(course, {
+    from: rule.from,
+    to: rule.to,
+    by: req.user,
+    reason: reason.trim(),
+    action: `course.${rule.event}`,
+    set,
+  });
+  if (!updated) throw ApiError.conflict('Someone else just reviewed this course — refresh and try again');
+  await notifyCourseEvent(updated, { event: rule.event, actor: req.user, reason: reason.trim() });
+  ok(res, updated);
+});
+
+/** POST /api/courses/:id/publish — owner publishes an APPROVED course. */
+export const publishCourse = asyncHandler(async (req, res) => {
+  const course = await Course.findById(req.params.id);
+  if (!course) throw ApiError.notFound('Course not found');
+  const staff = can(req.user, PERMISSIONS.COURSES_MANAGE_ALL);
+  if (!staff && !(await ownsCourse(req, course))) throw ApiError.forbidden('You can only publish your own courses');
+
+  let allowed = course.status === 'approved';
+  if (!allowed && staff && course.status === 'draft' && !course.submittedAt) {
+    // Staff-authored content never went through trainer review; trainer-authored courses always do.
+    const author = course.createdBy ? await User.findById(course.createdBy).select('role') : null;
+    allowed = !author || author.role !== 'trainer';
+  }
+  if (!allowed) throw ApiError.conflict('Only courses approved by a manager can be published');
+
+  const updated = await atomicTransition(course, {
+    from: [course.status],
+    to: 'published',
+    by: req.user,
+    action: 'course.published',
+    set: { publishedAt: new Date() },
+  });
+  if (!updated) throw ApiError.conflict('This course changed while publishing — refresh and try again');
+  await notifyCourseEvent(updated, { event: 'published', actor: req.user });
+  ok(res, updated);
+});
+
+/** POST /api/courses/:id/unpublish — take a live course off the marketplace (stays approved). */
+export const unpublishCourse = asyncHandler(async (req, res) => {
+  const course = await Course.findById(req.params.id);
+  if (!course) throw ApiError.notFound('Course not found');
+  if (!(await canManageCourse(req, course))) throw ApiError.forbidden();
+  if (course.status !== 'published') throw ApiError.conflict('This course is not published');
+  const updated = await atomicTransition(course, { from: ['published'], to: 'approved', by: req.user, action: 'course.unpublished' });
+  if (!updated) throw ApiError.conflict('This course is no longer published');
+  ok(res, updated);
+});
+
+/** GET /api/courses/:id/history — approval trail for the owner and staff. */
+export const courseHistory = asyncHandler(async (req, res) => {
+  const course = await Course.findById(req.params.id)
+    .select('title status statusHistory submittedAt approvedAt approvedBy publishedAt reviewNote')
+    .populate('statusHistory.by', 'name role')
+    .populate('approvedBy', 'name');
+  if (!course) throw ApiError.notFound('Course not found');
+  const staff = can(req.user, PERMISSIONS.AUDIT_READ) || can(req.user, PERMISSIONS.COURSES_REVIEW);
+  if (!staff && !(await canManageCourse(req, course))) throw ApiError.forbidden();
+  ok(res, course);
 });
 
 export const courseStats = asyncHandler(async (req, res) => {

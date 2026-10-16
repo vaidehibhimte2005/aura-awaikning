@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { Certificate, Course, Enrollment, Lesson, LessonProgress, User } from '../models/index.js';
-import { notify } from './notificationService.js';
+import { Certificate, Course, Enrollment, Lesson, LessonProgress, Trainer, User } from '../models/index.js';
+import { notify, staffIds } from './notificationService.js';
 
 /** Recalculate a course's lesson count & total duration after lesson changes. */
 export async function recalcCourseStats(courseId) {
@@ -29,13 +29,25 @@ export async function enrollUser({ userId, courseId, source = 'free', orderId })
   try {
     const enrollment = await Enrollment.create({ user: userId, course: courseId, source, order: orderId });
     await Course.updateOne({ _id: courseId }, { $inc: { enrollmentCount: 1 } });
-    const course = await Course.findById(courseId).select('title slug');
+    const course = await Course.findById(courseId).select('title slug trainers');
+    const key = `enrollment:${enrollment._id}`;
     await notify(userId, {
       type: 'enrollment',
       title: `You're enrolled in ${course?.title || 'your course'}`,
       message: 'Your learning space is ready. Begin whenever you feel ready.',
       link: `/learn/${course?.slug || ''}`,
+      related: { type: 'enrollment', id: enrollment._id },
+      idempotencyKey: `${key}:learner`,
     }, { channels: ['email'] });
+    // Trainer(s) and staff get visibility of every confirmed enrollment.
+    const [learner, trainerUsers, staff] = await Promise.all([
+      User.findById(userId).select('name'),
+      Trainer.find({ _id: { $in: course?.trainers || [] } }).distinct('user'),
+      staffIds(['admin']),
+    ]);
+    const msg = `${learner?.name || 'A learner'} enrolled in ${course?.title || 'a course'}.`;
+    await notify(trainerUsers, { type: 'enrollment', title: 'New learner enrolled', message: msg, link: '/trainer/learners', related: { type: 'enrollment', id: enrollment._id }, idempotencyKey: `${key}:trainer` });
+    await notify(staff, { type: 'enrollment', title: 'New enrollment', message: msg, link: '/admin/enrollments', related: { type: 'enrollment', id: enrollment._id }, idempotencyKey: `${key}:admin` });
     return { enrollment, created: true };
   } catch (err) {
     if (err.code === 11000) {

@@ -32,6 +32,7 @@ export const webhook = asyncHandler(async (req, res) => {
 export const myPayments = asyncHandler(async (req, res) => {
   const items = await Payment.find({ user: req.user._id })
     .populate('course', 'title slug')
+    .populate('package', 'name')
     .populate('order', 'orderNumber')
     .sort({ createdAt: -1 })
     .limit(100);

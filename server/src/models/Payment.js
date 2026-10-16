@@ -8,7 +8,8 @@ const paymentSchema = new Schema(
   {
     order: { type: Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    course: { type: Schema.Types.ObjectId, ref: 'Course', required: true },
+    course: { type: Schema.Types.ObjectId, ref: 'Course' },
+    package: { type: Schema.Types.ObjectId, ref: 'Package' },
     amount: { type: Number, required: true },
     currency: { type: String, required: true },
     provider: { type: String, required: true },

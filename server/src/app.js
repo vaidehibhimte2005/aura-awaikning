@@ -8,6 +8,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import { env } from './config/env.js';
 import api from './routes/index.js';
 import { webhook } from './controllers/paymentController.js';
+import { zoomWebhook } from './controllers/trainingController.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { errorHandler, notFound } from './middleware/error.js';
 import { UPLOAD_DIR } from './services/storageService.js';
@@ -37,6 +38,8 @@ export function createApp() {
 
   // Webhooks need the untouched raw body for signature verification → mount before JSON parser.
   app.post('/api/payments/webhook/:provider', express.raw({ type: '*/*', limit: '1mb' }), webhook);
+
+  app.post('/api/meetings/webhook/zoom', express.raw({ type: '*/*', limit: '1mb' }), zoomWebhook);
 
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));

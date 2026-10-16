@@ -1,8 +1,8 @@
-export function SectionHeading({ eyebrow, title, lead, center = false, as: Tag = 'h2', children }) {
+export function SectionHeading({ eyebrow, title, lead, center = false, as: Tag = 'h2', id, children }) {
   return (
     <div className={`section-heading${center ? ' center' : ''}`}>
       {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-      <Tag>{title}</Tag>
+      <Tag id={id}>{title}</Tag>
       {lead && <p className="lead">{lead}</p>}
       {children}
     </div>

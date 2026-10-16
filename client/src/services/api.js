@@ -33,7 +33,7 @@ export class ApiError extends Error {
   }
   /** { fieldName: message } for inline form errors */
   get fieldErrors() {
-    return Object.fromEntries((this.errors || []).map((e) => [e.field, e.message]));
+    return Array.isArray(this.errors) ? Object.fromEntries(this.errors.map((e) => [e.field, e.message])) : {};
   }
 }
 

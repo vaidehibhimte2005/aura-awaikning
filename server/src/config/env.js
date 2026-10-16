@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { setVerificationPolicy } from './permissions.js';
 
 const required = ['MONGO_URI', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
 const missing = required.filter((k) => !process.env[k]);
@@ -41,6 +42,17 @@ export const env = {
       webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
     },
   },
+  // Meeting provider for 1:1 training sessions. 'zoom' needs all four ZOOM_* values; otherwise the
+  // clearly-labelled demo room is used (and no real meeting is claimed).
+  meetings: {
+    requested: (process.env.MEETING_PROVIDER || 'demo').toLowerCase(),
+    zoom: {
+      accountId: process.env.ZOOM_ACCOUNT_ID,
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+      webhookSecret: process.env.ZOOM_WEBHOOK_SECRET,
+    },
+  },
   youtubeApiKey: process.env.YOUTUBE_API_KEY,
   smtp: {
     host: process.env.SMTP_HOST,
@@ -49,8 +61,15 @@ export const env = {
     password: process.env.SMTP_PASSWORD,
     from: process.env.MAIL_FROM || 'Aura Awakening <hello@auraawakening.com>',
   },
+  // Email verification is enforced only when mail can actually be delivered (or when forced).
+  requireEmailVerification:
+    process.env.REQUIRE_EMAIL_VERIFICATION !== undefined
+      ? process.env.REQUIRE_EMAIL_VERIFICATION === 'true'
+      : !!(process.env.SMTP_HOST && process.env.SMTP_USER),
   storage: {
     driver: process.env.STORAGE_DRIVER || 'local',
     maxMb: Number(process.env.UPLOAD_MAX_MB) || 5,
   },
 };
+
+setVerificationPolicy(() => env.requireEmailVerification);

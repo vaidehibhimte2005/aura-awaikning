@@ -1,10 +1,13 @@
 import { Course, Enrollment, Trainer } from '../models/index.js';
-import { can, PERMISSIONS, ROLES } from '../config/permissions.js';
+import { can, isTrainerActive, PERMISSIONS, ROLES } from '../config/permissions.js';
+import { env } from '../config/env.js';
 import { ApiError } from '../utils/http.js';
 
 /** Returns the Trainer profile id for a trainer user (cached on req). */
 export async function trainerIdFor(req) {
   if (!req.user || req.user.role !== ROLES.TRAINER) return null;
+  // Unapproved applicants have no working trainer profile yet.
+  if (!isTrainerActive(req.user, { requireVerified: env.requireEmailVerification })) return null;
   if (req._trainerId !== undefined) return req._trainerId;
   const t = await Trainer.findOne({ user: req.user._id }).select('_id');
   req._trainerId = t?._id || null;

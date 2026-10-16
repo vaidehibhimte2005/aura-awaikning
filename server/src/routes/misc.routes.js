@@ -16,7 +16,8 @@ export const dashboardRoutes = Router()
   .get('/admin', protect, requireRole('admin'), c.adminDashboard)
   .get('/manager', protect, requirePermission(P.CONTENT_MANAGE), c.managerDashboard)
   .get('/trainer', protect, requireRole('trainer'), c.trainerDashboard)
-  .get('/learner', protect, c.learnerDashboard);
+  .get('/learner', protect, c.learnerDashboard)
+  .get('/learners', protect, requirePermission(P.AUDIT_READ), c.learnerDirectory);
 
 export const notificationRoutes = Router()
   .get('/', protect, c.myNotifications)

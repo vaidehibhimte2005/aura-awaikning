@@ -1,4 +1,4 @@
-import { Enrollment, LiveSession } from '../models/index.js';
+import { Enrollment, LiveSession, User } from '../models/index.js';
 import { ApiError, asyncHandler, created, getPagination, ok, pageMeta } from '../utils/http.js';
 import { uniqueSlug } from '../utils/slugify.js';
 import { can, PERMISSIONS } from '../config/permissions.js';
@@ -58,6 +58,9 @@ export const listSessions = asyncHandler(async (req, res) => {
       if (!tid) return ok(res, [], 200, pageMeta(0, pg));
       filter.trainer = tid;
     }
+    if (['pending', 'approved', 'rejected'].includes(req.query.approvalStatus)) {
+      filter.approvalStatus = req.query.approvalStatus;
+    }
   } else {
     filter.isPublished = true;
   }
@@ -109,15 +112,39 @@ export const getSession = asyncHandler(async (req, res) => {
   ok(res, await shape(req, s));
 });
 
+// Fields that change what learners are shown; a trainer editing any of these
+// on an approved session sends it back to the manager for re-approval.
+const REVIEWED_FIELDS = [
+  'title', 'description', 'kind', 'startAt', 'endAt', 'youtubeUrl', 'youtubeId',
+  'thumbnail', 'mode', 'venue', 'accessLevel', 'course', 'capacity', 'requiresRegistration',
+];
+
+async function notifyReviewers(session, message) {
+  const reviewers = await User.find({ role: { $in: ['admin', 'manager'] }, isActive: true }).select('_id');
+  await notify(reviewers.map((u) => u._id), {
+    type: 'system',
+    title: `Approval needed: ${session.title}`,
+    message,
+    link: '/manager/live-sessions',
+  });
+}
+
 export const createSession = asyncHandler(async (req, res) => {
   const data = { ...req.body, createdBy: req.user._id };
-  if (!manageAll(req)) {
+  const byTrainer = !manageAll(req);
+  if (byTrainer) {
     const tid = await trainerIdFor(req);
     if (!tid) throw ApiError.forbidden('A trainer profile is required');
     data.trainer = tid; // trainers can only create sessions for themselves
+    // Never visible to learners until a manager approves it.
+    data.isPublished = false;
+    data.approvalStatus = 'pending';
+  } else {
+    data.approvalStatus = 'approved';
   }
   data.slug = await uniqueSlug(LiveSession, `${data.title}-${new Date(data.startAt).toISOString().slice(0, 10)}`);
   const s = await LiveSession.create(data);
+  if (byTrainer) await notifyReviewers(s, `${req.user.name} submitted a new ${s.kind} for approval.`);
   created(res, s);
 });
 
@@ -126,9 +153,59 @@ export const updateSession = asyncHandler(async (req, res) => {
   if (!s) throw ApiError.notFound('Session not found');
   await assertCanManage(req, s);
   const data = { ...req.body };
-  if (!manageAll(req)) delete data.trainer;
+  delete data.approvalStatus;
+  let resubmitted = false;
+  if (!manageAll(req)) {
+    delete data.trainer;
+    delete data.isPublished; // only a manager/admin can publish
+    const touched = REVIEWED_FIELDS.some((f) => {
+      if (data[f] === undefined) return false;
+      const cur = s[f] instanceof Date ? s[f].getTime() : String(s[f] ?? '');
+      const next = s[f] instanceof Date ? new Date(data[f]).getTime() : String(data[f] ?? '');
+      return cur !== next;
+    });
+    if (touched && s.approvalStatus !== 'pending') {
+      s.approvalStatus = 'pending';
+      s.isPublished = false;
+      s.rejectionReason = '';
+      resubmitted = true;
+    }
+  } else if (data.isPublished === true && s.approvalStatus !== 'approved') {
+    // A manager publishing a pending session counts as approving it.
+    s.approvalStatus = 'approved';
+    s.rejectionReason = '';
+    s.reviewedBy = req.user._id;
+    s.reviewedAt = new Date();
+  }
   s.set(data);
   await s.save();
+  if (resubmitted) await notifyReviewers(s, `${req.user.name} edited "${s.title}" and it needs re-approval.`);
+  ok(res, s);
+});
+
+/** PATCH /api/live-sessions/:id/review  { decision: 'approve' | 'reject', reason? } */
+export const reviewSession = asyncHandler(async (req, res) => {
+  if (!manageAll(req)) throw ApiError.forbidden('Only a manager or admin can review sessions');
+  const s = await LiveSession.findById(req.params.id).populate('trainer', 'user');
+  if (!s) throw ApiError.notFound('Session not found');
+  const { decision, reason = '' } = req.body;
+  const approve = decision === 'approve';
+  s.approvalStatus = approve ? 'approved' : 'rejected';
+  s.isPublished = approve;
+  s.rejectionReason = approve ? '' : String(reason).slice(0, 500);
+  s.reviewedBy = req.user._id;
+  s.reviewedAt = new Date();
+  await s.save();
+  if (s.trainer?.user) {
+    await notify(s.trainer.user, {
+      type: 'system',
+      title: approve ? `Approved: ${s.title}` : `Not approved: ${s.title}`,
+      message: approve
+        ? 'Your session is now visible to learners.'
+        : `Your session was not approved.${s.rejectionReason ? ` Reason: ${s.rejectionReason}` : ''}`,
+      link: '/trainer/live-sessions',
+    });
+  }
   ok(res, s);
 });
 

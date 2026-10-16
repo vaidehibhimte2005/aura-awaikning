@@ -3,11 +3,16 @@
   "private": true,
   "description": "Aura Awakening — wellness website, LMS and live-learning platform (MERN)",
   "scripts": {
-    "install:all": "npm --prefix server install && npm --prefix client install",
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "both": "npm run dev",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "seed": "npm --prefix server run seed",
     "build": "npm --prefix client run build",
     "test": "npm --prefix server test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
   }
 }

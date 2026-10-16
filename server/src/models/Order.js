@@ -13,7 +13,12 @@ const orderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    course: { type: Schema.Types.ObjectId, ref: 'Course', required: true },
+    kind: { type: String, enum: ['course', 'package'], default: 'course', index: true },
+    course: { type: Schema.Types.ObjectId, ref: 'Course' },
+    package: { type: Schema.Types.ObjectId, ref: 'Package' },
+    purchaseMode: { type: String, enum: ['new', 'renew', 'upgrade'] },
+    // Price breakdown locked at checkout (computed on the server from the admin's current settings).
+    pricing: { dailyRate: Number, baseAmount: Number, discount: Number, amount: Number, trainingDays: Number, validityDays: Number },
     amount: { type: Number, required: true, min: 0 }, // major unit
     currency: { type: String, required: true, uppercase: true },
     provider: { type: String, required: true },

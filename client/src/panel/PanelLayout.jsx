@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LuAward, LuBell, LuBookOpen, LuCalendarDays, LuCircleHelp, LuCreditCard, LuFileText, LuFolderTree, LuGlobe, LuGraduationCap,
-  LuLayoutDashboard, LuLogOut, LuMegaphone, LuMenu, LuMessageSquare, LuMessageSquareQuote, LuRadio, LuReceipt, LuSettings,
-  LuShieldCheck, LuUser, LuUserCog, LuUsers, LuX,
+  LuBell, LuCalendarDays, LuCalendarPlus, LuCircleHelp, LuCreditCard, LuFileText, LuGlobe, LuGraduationCap, LuHistory,
+  LuLayoutDashboard, LuLogOut, LuMegaphone, LuMenu, LuMessageSquare, LuMessageSquareQuote, LuPackage, LuSettings,
+  LuShieldCheck, LuStar, LuUser, LuUsers, LuWallet, LuX,
 } from 'react-icons/lu';
 import { Logo } from '../components/Brand.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -16,74 +16,56 @@ export const PANEL_NAV = {
     groups: [
       { items: [{ to: '/admin', label: 'Dashboard', icon: LuLayoutDashboard, end: true }] },
       { title: 'People', items: [
-        { to: '/admin/users', label: 'Users', icon: LuUsers },
         { to: '/admin/trainers', label: 'Trainers', icon: LuGraduationCap },
-        { to: '/admin/managers', label: 'Managers', icon: LuUserCog },
+        { to: '/admin/learners', label: 'Learners', icon: LuUsers },
       ] },
-      { title: 'Learning', items: [
-        { to: '/admin/courses', label: 'Courses', icon: LuBookOpen },
-        { to: '/admin/categories', label: 'Categories', icon: LuFolderTree },
-        { to: '/admin/enrollments', label: 'Enrollments', icon: LuShieldCheck },
-        { to: '/admin/certificates', label: 'Certificates', icon: LuAward },
-      ] },
-      { title: 'Live', items: [
-        { to: '/admin/live-sessions', label: 'Live Sessions', icon: LuRadio },
-        { to: '/admin/events', label: 'Events', icon: LuCalendarDays },
-      ] },
-      { title: 'Commerce', items: [
+      { title: 'Packages', items: [
+        { to: '/admin/packages', label: 'Packages & pricing', icon: LuPackage },
+        { to: '/admin/subscriptions', label: 'Usage & expiry', icon: LuShieldCheck },
         { to: '/admin/payments', label: 'Payments', icon: LuCreditCard },
-        { to: '/admin/orders', label: 'Orders', icon: LuReceipt },
       ] },
-      { title: 'Content', items: [
-        { to: '/admin/articles', label: 'Articles', icon: LuFileText },
+      { title: 'Sessions', items: [
+        { to: '/admin/bookings', label: 'Bookings & attendance', icon: LuCalendarDays },
+        { to: '/admin/reports', label: 'Session report', icon: LuFileText },
+        { to: '/admin/payouts', label: 'Trainer payouts', icon: LuWallet },
+        { to: '/admin/feedback', label: 'Learner feedback', icon: LuStar },
+      ] },
+      { title: 'Website', items: [
         { to: '/admin/faqs', label: 'FAQs', icon: LuCircleHelp },
         { to: '/admin/testimonials', label: 'Testimonials', icon: LuMessageSquareQuote },
-        { to: '/admin/announcements', label: 'Announcements', icon: LuMegaphone },
-        { to: '/admin/messages', label: 'Messages', icon: LuMessageSquare },
-        { to: '/admin/content', label: 'Website Content', icon: LuGlobe },
+        { to: '/admin/messages', label: 'Contact messages', icon: LuMessageSquare },
       ] },
-      { items: [{ to: '/admin/settings', label: 'Settings', icon: LuSettings }] },
-    ],
-  },
-  manager: {
-    label: 'Content & Live',
-    groups: [
-      { items: [{ to: '/manager', label: 'Dashboard', icon: LuLayoutDashboard, end: true }] },
-      { title: 'Live', items: [
-        { to: '/manager/live-sessions', label: 'Live Sessions', icon: LuRadio },
-        { to: '/manager/events', label: 'Events', icon: LuCalendarDays },
-      ] },
-      { title: 'Content', items: [
-        { to: '/manager/content', label: 'Homepage & Pages', icon: LuGlobe },
-        { to: '/manager/courses', label: 'Course Presentation', icon: LuBookOpen },
-        { to: '/manager/articles', label: 'Articles', icon: LuFileText },
-        { to: '/manager/faqs', label: 'FAQs', icon: LuCircleHelp },
-        { to: '/manager/testimonials', label: 'Testimonials', icon: LuMessageSquareQuote },
-        { to: '/manager/announcements', label: 'Announcements', icon: LuMegaphone },
-        { to: '/manager/messages', label: 'Messages', icon: LuMessageSquare },
+      { items: [
+        { to: '/admin/notifications', label: 'Notifications', icon: LuBell },
+        { to: '/admin/broadcast', label: 'Send notification', icon: LuMegaphone },
+        { to: '/admin/activity', label: 'Activity log', icon: LuHistory },
+        { to: '/admin/settings', label: 'Settings', icon: LuSettings },
       ] },
     ],
   },
   trainer: {
     label: 'Trainer Studio',
     groups: [
-      { items: [{ to: '/trainer', label: 'Dashboard', icon: LuLayoutDashboard, end: true }] },
-      { title: 'Teach', items: [
-        { to: '/trainer/courses', label: 'My Courses', icon: LuBookOpen },
-        { to: '/trainer/live-sessions', label: 'Live Sessions', icon: LuRadio },
-        { to: '/trainer/learners', label: 'Learners', icon: LuUsers },
+      { items: [
+        { to: '/trainer', label: 'Dashboard', icon: LuLayoutDashboard, end: true },
+        { to: '/trainer/slots', label: 'My availability', icon: LuCalendarPlus },
+        { to: '/trainer/bookings', label: 'Bookings', icon: LuCalendarDays },
+        { to: '/trainer/earnings', label: 'Earnings', icon: LuWallet },
+        { to: '/trainer/notifications', label: 'Notifications', icon: LuBell },
+        { to: '/trainer/profile', label: 'Profile', icon: LuUser },
       ] },
-      { items: [{ to: '/trainer/profile', label: 'Public Profile', icon: LuUser }] },
     ],
   },
   learner: {
-    label: 'My Learning',
+    label: 'My Training',
     groups: [
       { items: [
         { to: '/dashboard', label: 'Overview', icon: LuLayoutDashboard, end: true },
-        { to: '/dashboard/courses', label: 'My Courses', icon: LuBookOpen },
-        { to: '/dashboard/sessions', label: 'Live Sessions', icon: LuRadio },
-        { to: '/dashboard/certificates', label: 'Certificates', icon: LuAward },
+        { to: '/dashboard/plans', label: 'My plan', icon: LuPackage },
+        { to: '/dashboard/trainers', label: 'Trainers', icon: LuGraduationCap },
+        { to: '/dashboard/book', label: 'Book a session', icon: LuCalendarPlus },
+        { to: '/dashboard/bookings', label: 'My bookings', icon: LuCalendarDays },
+        { to: '/dashboard/history', label: 'Training history', icon: LuHistory },
         { to: '/dashboard/payments', label: 'Payments', icon: LuCreditCard },
         { to: '/dashboard/notifications', label: 'Notifications', icon: LuBell },
         { to: '/dashboard/profile', label: 'Profile', icon: LuUser },
@@ -109,12 +91,10 @@ export function PanelLayout({ area }) {
     return () => { alive = false; clearInterval(t); };
   }, [location.pathname]);
 
-  // Staff can also reach their personal learner area.
+  // Only admins have a second area to switch to.
   const switchLinks = [
     user.role === 'admin' && area !== 'admin' && { to: '/admin', label: 'Admin panel' },
-    user.role === 'manager' && area !== 'manager' && { to: '/manager', label: 'Manager panel' },
     user.role === 'trainer' && area !== 'trainer' && { to: '/trainer', label: 'Trainer studio' },
-    area !== 'learner' && { to: '/dashboard', label: 'My learning' },
   ].filter(Boolean);
 
   return (
@@ -146,7 +126,7 @@ export function PanelLayout({ area }) {
         <header className="panel-top">
           <button type="button" className="icon-btn menu" onClick={() => setOpen(true)} aria-label="Open menu"><LuMenu /></button>
           <div className="row" style={{ marginLeft: 'auto' }}>
-            <Link to="/dashboard/notifications" className="icon-btn bell" aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`}>
+            <Link to={area === 'learner' ? '/dashboard/notifications' : `/${area}/notifications`} className="icon-btn bell" aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`}>
               <LuBell />{unread > 0 && <span className="count">{unread > 9 ? '9+' : unread}</span>}
             </Link>
             <span className="avatar" aria-hidden>{user.avatar ? <img src={user.avatar} alt="" /> : initials(user.name)}</span>

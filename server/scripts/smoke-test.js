@@ -36,7 +36,7 @@ await check('register validates input', async () => {
   expect(r.status === 400 && r.body.success === false, `expected 400, got ${r.status}`);
 });
 await check('register', async () => {
-  const r = await call('POST', '/auth/register', { body: { name: 'Smoke Tester', email, password: 'Smoke1234', confirmPassword: 'Smoke1234' } });
+  const r = await call('POST', '/auth/register', { body: { name: 'Smoke Tester', email, phone: `+9199${String(Date.now()).slice(-8)}`, password: 'Smoke1234', confirmPassword: 'Smoke1234', country: 'India', state: 'MH', city: 'Pune', interests: ['Meditation'], acceptTerms: true, acceptPrivacy: true } });
   expect(r.status === 201 && r.body.data.accessToken && r.body.data.refreshToken, `register ${r.status} ${r.body.message}`);
   learner = r.body.data;
 });

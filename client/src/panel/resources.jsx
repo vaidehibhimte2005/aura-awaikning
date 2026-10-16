@@ -6,10 +6,12 @@ import { Link } from 'react-router-dom';
 import { LuExternalLink, LuListTree } from 'react-icons/lu';
 import { formatDate, formatDateTime, formatPrice, LEVEL_LABEL, sessionState, titleCase } from '../utils/format.js';
 import { SessionStateBadge } from '../components/LiveSessionCard.jsx';
+import { CourseWorkflowActions } from './CourseWorkflowActions.jsx';
 
 const yes = (v) => (v ? <span className="badge badge-success">Yes</span> : <span className="badge badge-muted">No</span>);
-export const statusBadge = (s) => {
-  const map = { published: 'badge-success', draft: 'badge-warning', archived: 'badge-muted', paid: 'badge-success', failed: 'badge-danger', refunded: 'badge-muted', pending: 'badge-warning', created: 'badge-muted', active: 'badge-success', completed: 'badge-gold', revoked: 'badge-danger', new: 'badge-gold', read: 'badge-muted', replied: 'badge-success' };
+export const statusBadge = (raw) => {
+  const s = String(raw || '').toLowerCase();
+  const map = { pending_approval: 'badge-warning', under_review: 'badge-gold', approved: 'badge-success', needs_revision: 'badge-warning', needs_information: 'badge-warning', rejected: 'badge-danger', published: 'badge-success', draft: 'badge-warning', archived: 'badge-muted', paid: 'badge-success', failed: 'badge-danger', refunded: 'badge-muted', pending: 'badge-warning', created: 'badge-muted', active: 'badge-success', completed: 'badge-gold', revoked: 'badge-danger', new: 'badge-gold', read: 'badge-muted', replied: 'badge-success', approved: 'badge-success', rejected: 'badge-danger' };
   return <span className={`badge ${map[s] || ''}`}>{titleCase(s || '—')}</span>;
 };
 
@@ -26,15 +28,16 @@ export function courseFields(role) {
     { name: 'category', label: 'Category', type: 'select', optionsFrom: categoryOptions, half: true, section: 'Basics', roles: ['admin', 'trainer'] },
     { name: 'level', label: 'Level', type: 'select', options: LEVELS, default: 'all', placeholder: false, half: true, section: 'Basics', roles: ['admin', 'trainer'] },
     { name: 'language', label: 'Language', default: 'English', half: true, section: 'Basics', roles: ['admin', 'trainer'] },
-    { name: 'status', label: 'Status', type: 'select', options: [{ value: 'draft', label: 'Draft' }, { value: 'published', label: 'Published' }, { value: 'archived', label: 'Archived' }], default: 'draft', placeholder: false, half: true, section: 'Basics', roles: ['admin'] },
     { name: 'description', label: 'Full description', type: 'markdown', hint: 'Supports **bold**, *italic*, ## headings and - lists', section: 'Content' },
     { name: 'coverImage', label: 'Cover image', type: 'image', folder: 'courses', section: 'Content' },
     { name: 'previewVideo.youtubeUrl', label: 'Preview video (YouTube)', type: 'youtube', section: 'Content' },
     { name: 'outcomes', label: 'What learners will gain', type: 'list', addLabel: 'Add Outcome', section: 'Content' },
     { name: 'requirements', label: 'Requirements', type: 'list', addLabel: 'Add Requirement', section: 'Content' },
     { name: 'tags', label: 'Tags', type: 'list', addLabel: 'Add Tag', section: 'Content' },
-    { name: 'price', label: 'Price (0 = free)', type: 'number', min: 0, default: 0, half: true, section: 'Pricing & trainers', roles: ['admin'] },
-    { name: 'compareAtPrice', label: 'Compare-at price', type: 'number', min: 0, half: true, section: 'Pricing & trainers', roles: ['admin'] },
+    { name: 'targetAudience', label: 'Target audience', type: 'textarea', section: 'Content', roles: ['admin', 'trainer'] },
+    { name: 'refundPolicy', label: 'Refund policy information', type: 'textarea', section: 'Pricing & trainers', roles: ['admin', 'trainer'] },
+    { name: 'price', label: 'Selling price in INR (0 = free)', type: 'number', min: 0, default: 0, half: true, section: 'Pricing & trainers', roles: ['admin', 'trainer'] },
+    { name: 'compareAtPrice', label: 'Original price (optional, shown struck through)', type: 'number', min: 0, half: true, section: 'Pricing & trainers', roles: ['admin', 'trainer'] },
     { name: 'currency', label: 'Currency', type: 'select', options: [{ value: 'INR', label: 'INR (₹)' }, { value: 'USD', label: 'USD ($)' }, { value: 'EUR', label: 'EUR (€)' }, { value: 'GBP', label: 'GBP (£)' }], default: 'INR', placeholder: false, half: true, section: 'Pricing & trainers', roles: ['admin'] },
     { name: 'trainers', label: 'Assigned trainers', type: 'multiselect', optionsFrom: trainerOptions, section: 'Pricing & trainers', roles: ['admin'] },
     { name: 'isFeatured', label: 'Feature on homepage', type: 'checkbox', section: 'Visibility', roles: ['admin', 'manager'] },
@@ -59,7 +62,7 @@ export function courseColumns(base) {
         </div>
       ),
     },
-    { key: 'status', label: 'Status', render: (c) => statusBadge(c.status) },
+    { key: 'status', label: 'Status', render: (c) => <div>{statusBadge(c.status)}{c.reviewNote && ['rejected', 'needs_revision'].includes(c.status) && <div className="cell-sub">{c.reviewNote}</div>}</div> },
     { key: 'price', label: 'Price', render: (c) => formatPrice(c.price, c.currency) },
     { key: 'lessonCount', label: 'Lessons', render: (c) => c.lessonCount || 0 },
     { key: 'enrollmentCount', label: 'Learners', render: (c) => c.enrollmentCount || 0 },
@@ -67,8 +70,9 @@ export function courseColumns(base) {
   ].filter((c) => !(base === 'manager' && c.key === 'price'));
 }
 
-export const courseRowActions = (base) => (c) => (
+export const courseRowActions = (base) => (c, ctx = {}) => (
   <>
+    <CourseWorkflowActions course={c} base={base} reload={ctx.reload || (() => {})} />
     {base !== 'manager' && (
       <Link to={`/${base}/courses/${c._id}/curriculum`} className="icon-btn" title="Curriculum" aria-label="Manage curriculum"><LuListTree /></Link>
     )}
@@ -108,7 +112,7 @@ export function sessionFields(role, kind = 'session') {
     { name: 'course', label: 'Linked course', type: 'select', optionsFrom: courseOptions, half: true, section: 'Access', showIf: (v) => v.accessLevel === 'enrolled' },
     { name: 'capacity', label: 'Capacity (optional)', type: 'number', min: 0, half: true, section: 'Access' },
     { name: 'requiresRegistration', label: 'Requires registration', type: 'checkbox', section: 'Access' },
-    { name: 'isPublished', label: 'Published', type: 'checkbox', section: 'Access' },
+    { name: 'isPublished', label: 'Published', type: 'checkbox', section: 'Access', roles: ['admin', 'manager'], hint: 'Trainer-submitted sessions go live for learners once a manager approves them.' },
   ].filter((f) => !f.roles || f.roles.includes(role));
 }
 
@@ -116,7 +120,17 @@ export const sessionColumns = [
   { key: 'title', label: 'Session', render: (s) => <div><div className="cell-title">{s.title}</div><div className="cell-sub">{titleCase(s.kind)} · {s.trainer?.displayName || 'No trainer'}</div></div> },
   { key: 'startAt', label: 'When', render: (s) => formatDateTime(s.startAt) },
   { key: 'state', label: 'State', render: (s) => <SessionStateBadge state={sessionState(s)} /> },
-  { key: 'isPublished', label: 'Published', render: (s) => yes(s.isPublished) },
+  {
+    key: 'approvalStatus',
+    label: 'Approval',
+    render: (s) => (
+      <div>
+        {statusBadge(s.approvalStatus || 'approved')}
+        {s.approvalStatus === 'rejected' && s.rejectionReason && <div className="cell-sub">{s.rejectionReason}</div>}
+      </div>
+    ),
+  },
+  { key: 'isPublished', label: 'Visible to learners', render: (s) => yes(s.isPublished) },
   { key: 'registrationCount', label: 'Registered', render: (s) => s.registrationCount ?? '—' },
 ];
 
@@ -233,12 +247,18 @@ export const ROLE_OPTIONS = [
   { value: 'manager', label: 'Content & Live Manager' },
   { value: 'admin', label: 'Admin' },
 ];
+// Operational approvals are not implied by the admin role — grant them explicitly.
+export const EXTRA_PERMISSION_OPTIONS = [
+  { value: 'trainers:review', label: 'Review trainer applications' },
+  { value: 'courses:review', label: 'Review & approve courses' },
+];
 export const userFields = [
   { name: 'name', label: 'Name', required: true, half: true },
   { name: 'email', label: 'Email', type: 'email', required: true, half: true },
   { name: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS, default: 'learner', placeholder: false, half: true },
   { name: 'password', label: 'Password', type: 'password', hint: 'Required for new users. Leave blank to keep the current password.', half: true },
   { name: 'isActive', label: 'Account active', type: 'checkbox', default: true },
+  { name: 'extraPermissions', label: 'Extra permissions', type: 'multiselect', options: EXTRA_PERMISSION_OPTIONS, hint: 'Admins can only approve trainers and courses when explicitly granted here.', showIf: (v) => ['admin', 'manager'].includes(v.role) },
 ];
 export const userColumns = [
   { key: 'name', label: 'User', render: (u) => <div><div className="cell-title">{u.name}</div><div className="cell-sub">{u.email}</div></div> },

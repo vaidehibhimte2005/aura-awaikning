@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LuBell, LuBookOpen, LuLayoutDashboard, LuLogOut, LuMenu, LuUser, LuX } from 'react-icons/lu';
+import { LuBell, LuLayoutDashboard, LuLogOut, LuMenu, LuUser, LuX } from 'react-icons/lu';
 import { Logo } from './Brand.jsx';
 import { ROLE_HOME, useAuth } from '../context/AuthContext.jsx';
 import { initials } from '../utils/format.js';
 
 export const NAV_LINKS = [
-  { to: '/about', label: 'About' },
-  { to: '/courses', label: 'Programs' },
-  { to: '/live-sessions', label: 'Live Sessions' },
+  { to: '/#how-it-works', label: 'How it works' },
+  { to: '/#plans', label: 'Plans' },
   { to: '/trainers', label: 'Trainers' },
-  { to: '/events', label: 'Events' },
-  { to: '/articles', label: 'Journal' },
+  { to: '/#faq', label: 'FAQ' },
   { to: '/contact', label: 'Contact' },
 ];
 
@@ -47,9 +45,8 @@ function UserMenu() {
           </div>
           <hr />
           <Link to={home} role="menuitem"><LuLayoutDashboard size={16} /> Dashboard</Link>
-          <Link to="/dashboard/courses" role="menuitem"><LuBookOpen size={16} /> My Courses</Link>
-          <Link to="/dashboard/notifications" role="menuitem"><LuBell size={16} /> Notifications</Link>
-          <Link to="/dashboard/profile" role="menuitem"><LuUser size={16} /> Profile</Link>
+          <Link to={`${home}/notifications`.replace('//', '/')} role="menuitem"><LuBell size={16} /> Notifications</Link>
+          {user.role === 'learner' && <Link to="/dashboard/profile" role="menuitem"><LuUser size={16} /> Profile</Link>}
           <hr />
           <button type="button" role="menuitem" onClick={async () => { await logout(); navigate('/'); }}>
             <LuLogOut size={16} /> Log Out
@@ -88,7 +85,7 @@ export function Navbar({ transparent = false }) {
           <nav aria-label="Main">
             <ul className="nav-links">
               {NAV_LINKS.map((l) => (
-                <li key={l.to}><NavLink to={l.to}>{l.label}</NavLink></li>
+                <li key={l.to}>{l.to.includes('#') ? <Link to={l.to}>{l.label}</Link> : <NavLink to={l.to}>{l.label}</NavLink>}</li>
               ))}
             </ul>
           </nav>
@@ -98,7 +95,7 @@ export function Navbar({ transparent = false }) {
             ) : (
               <>
                 <Link to="/login" className="btn btn-outline btn-sm hide-mobile">Log In</Link>
-                <Link to="/register" className={`btn btn-sm hide-mobile ${transparent ? 'btn-gold' : ''}`}>Begin Journey</Link>
+                <Link to="/register" className={`btn btn-sm hide-mobile ${transparent ? 'btn-gold' : ''}`}>Register</Link>
               </>
             ))}
             <button type="button" className="icon-btn nav-toggle" onClick={() => setDrawer(true)} aria-label="Open menu" aria-expanded={drawer}>
@@ -115,15 +112,14 @@ export function Navbar({ transparent = false }) {
             <button type="button" className="icon-btn" onClick={() => setDrawer(false)} aria-label="Close menu"><LuX /></button>
             <nav aria-label="Mobile">
               <NavLink to="/" end>Home</NavLink>
-              {NAV_LINKS.map((l) => <NavLink key={l.to} to={l.to}>{l.label}</NavLink>)}
-              <NavLink to="/faq">FAQ</NavLink>
+              {NAV_LINKS.map((l) => (l.to.includes('#') ? <Link key={l.to} to={l.to}>{l.label}</Link> : <NavLink key={l.to} to={l.to}>{l.label}</NavLink>))}
             </nav>
             <div className="drawer-actions">
               {isAuthenticated ? (
-                <Link to="/dashboard" className="btn btn-gold">My Dashboard</Link>
+                <Link to="/dashboard" className="btn btn-gold" onClick={() => {}}>My Dashboard</Link>
               ) : (
                 <>
-                  <Link to="/register" className="btn btn-gold">Begin Your Journey</Link>
+                  <Link to="/register" className="btn btn-gold">Register as a learner</Link>
                   <Link to="/login" className="btn btn-ghost-light">Log In</Link>
                 </>
               )}

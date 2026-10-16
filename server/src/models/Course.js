@@ -3,6 +3,17 @@ import { videoFields, normaliseVideo } from '../utils/youtube.js';
 
 const { Schema } = mongoose;
 
+export const COURSE_STATUS = [
+  'draft',
+  'pending_approval',
+  'under_review',
+  'approved',
+  'published',
+  'rejected',
+  'needs_revision',
+  'archived',
+];
+
 const previewVideoSchema = new Schema({ ...videoFields }, { _id: false });
 
 const courseSchema = new Schema(
@@ -27,7 +38,28 @@ const courseSchema = new Schema(
     lessonCount: { type: Number, default: 0 },
     durationMinutes: { type: Number, default: 0 },
     enrollmentCount: { type: Number, default: 0 },
-    status: { type: String, enum: ['draft', 'published', 'archived'], default: 'draft', index: true },
+    status: { type: String, enum: COURSE_STATUS, default: 'draft', index: true },
+    // Marketplace extras
+    targetAudience: { type: String, default: '' },
+    refundPolicy: { type: String, default: '' },
+    isDemo: { type: Boolean, default: false }, // clearly-labelled seed/sample content
+    // Approval workflow (draft → pending_approval → under_review → approved → published)
+    submittedAt: Date,
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: Date,
+    approvedAt: Date,
+    approvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    reviewNote: { type: String, default: '' }, // rejection reason / requested changes
+    revision: { type: Number, default: 1 },
+    statusHistory: {
+      type: [
+        new Schema(
+          { from: String, to: String, by: { type: Schema.Types.ObjectId, ref: 'User' }, reason: String, at: { type: Date, default: Date.now } },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     isFeatured: { type: Boolean, default: false, index: true },
     certificateEnabled: { type: Boolean, default: true },
     seo: {

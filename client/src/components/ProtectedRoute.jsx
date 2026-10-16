@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
+import { ROLE_HOME, useAuth } from '../context/AuthContext.jsx';
 import { Loader } from './States.jsx';
 
 /**
@@ -11,13 +11,13 @@ export function ProtectedRoute({ roles, children }) {
   const location = useLocation();
   if (status === 'loading') return <Loader page label="Preparing your space…" />;
   if (status !== 'authenticated') return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to={ROLE_HOME[user.role] || '/dashboard'} replace />;
   return children || <Outlet />;
 }
 
 export function GuestOnly({ children }) {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   if (status === 'loading') return <Loader page />;
-  if (status === 'authenticated') return <Navigate to="/dashboard" replace />;
+  if (status === 'authenticated') return <Navigate to={ROLE_HOME[user?.role] || '/dashboard'} replace />;
   return children;
 }

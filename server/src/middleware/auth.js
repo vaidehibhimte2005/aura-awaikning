@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { User } from '../models/index.js';
 import { ApiError, asyncHandler } from '../utils/http.js';
-import { can, permissionsFor } from '../config/permissions.js';
+import { can, isTrainerActive, permissionsFor } from '../config/permissions.js';
 
 function readToken(req) {
   const header = req.headers.authorization || '';
@@ -48,6 +48,10 @@ export const optionalAuth = asyncHandler(async (req, _res, next) => {
 export const requireRole = (...roles) => (req, _res, next) => {
   if (!req.user) return next(ApiError.unauthorized());
   if (!roles.includes(req.user.role)) return next(ApiError.forbidden());
+  // A trainer login is not enough: the application must be approved first.
+  if (req.user.role === 'trainer' && !isTrainerActive(req.user, { requireVerified: env.requireEmailVerification })) {
+    return next(ApiError.forbidden('Your trainer application has not been approved yet'));
+  }
   return next();
 };
 

@@ -13,8 +13,11 @@
     "seed": "node src/seed/seed.js",
     "seed:reset": "node src/seed/seed.js --reset",
     "db:indexes": "node scripts/sync-indexes.js",
-    "test": "node --test test/unit.test.js",
-    "test:smoke": "node scripts/smoke-test.js"
+    "test": "node --test test/unit.test.js test/attendance.test.js",
+    "test:smoke": "node scripts/smoke-test.js",
+    "seed:demo": "node src/seed/demoCourses.js",
+    "test:training": "node --test --test-concurrency=1 test/training.test.js",
+    "test:workflow": "node --test --test-concurrency=1 test/workflow.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

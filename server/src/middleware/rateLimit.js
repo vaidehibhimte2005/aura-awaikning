@@ -19,6 +19,15 @@ export const authLimiter = rateLimit({
   message,
 });
 
+/** Session restore runs on every page load, so it needs far more headroom than login. */
+export const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message,
+});
+
 export const contactLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 10,

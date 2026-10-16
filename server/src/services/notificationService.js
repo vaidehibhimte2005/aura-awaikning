@@ -47,17 +47,54 @@ const channels = {
   },
 };
 
+/** Sends a one-off email (verification, password reset). Returns false when mail isn't configured. */
+export async function sendEmail({ to, subject, text, html }) {
+  const t = mailer();
+  if (!t) return false;
+  try {
+    await t.sendMail({ from: env.smtp.from, to, subject, text, html: html || undefined });
+    return true;
+  } catch (err) {
+    console.error('sendEmail failed', err.message);
+    return false;
+  }
+}
+
+/** Ids of active staff users with one of the given roles (e.g. managers + admins). */
+export async function staffIds(roles = ['manager', 'admin']) {
+  return User.find({ role: { $in: roles }, isActive: true }).distinct('_id');
+}
+
 /**
- * notify(userIds, { type, title, message, link }, { channels: ['email'] })
+ * notify(userIds, { type, title, message, link, related, idempotencyKey }, { channels: ['email'] })
+ *  - `related: { type, id }` links the notification to a record.
+ *  - `idempotencyKey` guarantees one notification per recipient even if the
+ *    triggering request is retried (backed by a unique index).
  * Never throws — notifications must not break the business flow that triggered them.
  */
 export async function notify(userIds, payload, { channels: extra = [] } = {}) {
-  const ids = [].concat(userIds).filter(Boolean);
+  let ids = [].concat(userIds).filter(Boolean).map(String);
+  ids = [...new Set(ids)];
   if (!ids.length) return [];
   try {
-    const docs = await Notification.insertMany(
-      ids.map((user) => ({ ...payload, user, deliveries: [{ channel: 'in_app', status: 'sent' }] })),
-    );
+    if (payload.idempotencyKey) {
+      const seen = new Set(
+        (await Notification.find({ user: { $in: ids }, idempotencyKey: payload.idempotencyKey }).select('user')).map((n) => n.user.toString()),
+      );
+      ids = ids.filter((id) => !seen.has(id));
+      if (!ids.length) return [];
+    }
+    let docs;
+    try {
+      docs = await Notification.insertMany(
+        ids.map((user) => ({ ...payload, user, deliveries: [{ channel: 'in_app', status: 'sent' }] })),
+        { ordered: false },
+      );
+    } catch (err) {
+      // A concurrent retry won the race on the unique idempotency index — keep what we inserted.
+      if (err.code !== 11000 && !err.writeErrors) throw err;
+      docs = err.insertedDocs || [];
+    }
     if (extra.length) {
       const users = await User.find({ _id: { $in: ids } }).select('email notificationPrefs');
       const byId = new Map(users.map((u) => [u.id, u]));

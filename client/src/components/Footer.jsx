@@ -31,19 +31,18 @@ export function Footer() {
           <div>
             <h4>Explore</h4>
             <ul>
-              <li><Link to="/about">About</Link></li>
-              <li><Link to="/courses">Programs</Link></li>
+              <li><Link to="/#about">About</Link></li>
+              <li><Link to="/#plans">Plans &amp; pricing</Link></li>
               <li><Link to="/trainers">Trainers</Link></li>
-              <li><Link to="/articles">Journal</Link></li>
             </ul>
           </div>
           <div>
             <h4>Practice</h4>
             <ul>
-              <li><Link to="/live-sessions">Live Sessions</Link></li>
-              <li><Link to="/events">Events &amp; Retreats</Link></li>
-              <li><Link to="/faq">FAQ</Link></li>
-              <li><Link to="/dashboard">My Learning</Link></li>
+              <li><Link to="/#how-it-works">How it works</Link></li>
+              <li><Link to="/#faq">FAQ</Link></li>
+              <li><Link to="/login">Log in</Link></li>
+              <li><Link to="/register">Register</Link></li>
             </ul>
           </div>
           <div>
